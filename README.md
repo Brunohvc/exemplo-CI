@@ -32,12 +32,30 @@ yarn install && yarn lint && yarn test && yarn build && yarn start
 | `ci` | push/PR em `main` e `homolog` | install, lint, test, build |
 | `ci_docker` | tudo que **não** é `main` | `docker build` da imagem |
 | `cd_hml` | push em `homolog` | log do deploy em `hml` (env `hml`) |
-| `version_bump` | push/dispatch em `main` | `npm version <tipo>`, commit `chore(release): vX.Y.Z [skip ci]`, tag e push |
-| `ci_docker_release` | push/dispatch em `main` | `docker build` no commit já versionado |
-| `cd_prd` | push/dispatch em `main` | log do deploy em `prd` (env `prd`) |
+| `bump_plan` | push/dispatch em `main` | resolve o incremento e escreve no resumo o `1.0.1 → 1.1.0` que será aplicado |
+| `version_bump` | após aprovação (env `release`) | `npm version <tipo>`, commit `chore(release): vX.Y.Z [skip ci]`, tag e push |
+| `ci_docker_release` | após o bump | `docker build` no commit já versionado |
+| `cd_prd` | após o bump | log do deploy em `prd` (env `prd`) |
 
-O bump vem do input `bump` do `workflow_dispatch`. Em **push direto na `main`** (sem dispatch) o default é `patch`.
 O commit de release leva `[skip ci]` para não disparar o workflow em loop.
+
+### Gate de aprovação do bump
+
+O job `version_bump` usa o environment **`release`**, que tem *required reviewers*. Todo push na `main`
+para em **"release waiting for review"** e só segue depois do **Approve and deploy** — igual ao gate de `prd`
+dos repos do GB. Antes de aprovar, o resumo do `bump_plan` mostra o incremento escolhido, a origem e a
+próxima versão.
+
+De onde vem o incremento, em ordem de precedência:
+
+1. **input do Run workflow** (`workflow_dispatch`) — `patch` / `minor` / `major` / `skip`;
+2. **label do PR mergeado** — `bump:patch`, `bump:minor`, `bump:major` ou `bump:skip` (mais de um label → o job falha);
+3. **default `patch`**, quando o commit não veio de PR e não houve dispatch.
+
+> O diálogo de aprovação do GitHub só oferece Approve/Reject — ele não escolhe o tipo do bump.
+> Por isso o tipo vem do label/input, e a aprovação é o "pode subir".
+> *Required reviewers* em repo **privado** exige GitHub Pro/Team/Enterprise; em repo público é gratuito
+> (motivo pelo qual este repo é público).
 
 ## Como testar cada fluxo
 
@@ -62,10 +80,16 @@ A versão **não muda** em homolog — é a mesma do `package.json`.
 
 Actions → **Standard** → *Run workflow* → branch `main` → escolha o incremento → *Run*.
 
-Esperado: `ci` → `version_bump` (ex.: `1.0.0` → `1.1.0` no minor) → `ci_docker_release` → `cd_prd` logando
-`🚀 deploy concluido: exemplo-ci v1.1.0 -> prd`. No repo aparece a tag `v1.1.0` e o commit `chore(release)`.
+Esperado: `ci` → `bump_plan` → **pausa esperando aprovação** → `version_bump` (ex.: `1.0.1` → `1.1.0` no
+minor) → `ci_docker_release` → `cd_prd` logando `🚀 deploy concluido: exemplo-ci v1.1.0 -> prd`. No repo
+aparece a tag `v1.1.0` e o commit `chore(release)`.
 
 Com `skip`, nenhuma versão nova é criada e o deploy loga a versão atual.
+
+### 3b. Produção pelo label do PR
+
+Coloque `bump:minor` (ou `patch`/`major`/`skip`) no PR para `main` e mergeie. O `bump_plan` lê o label,
+mostra `atual → próxima` no resumo, e o release fica parado até você aprovar.
 
 > Depois do bump o `package.json` remoto muda — rode `git pull` antes do próximo push na `main`.
 

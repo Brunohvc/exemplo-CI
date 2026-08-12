@@ -27,6 +27,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   ci:
@@ -77,11 +78,72 @@ jobs:
           node-version-file: .nvmrc
       - name: Deploy App
         run: node scripts/deploy.mjs hml
-  version_bump:
-    name: Version Bump
+  bump_plan:
+    name: Bump Plan
     if: ${{ success() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' }}
     needs: [ci]
     runs-on: ubuntu-latest
+    outputs:
+      type: ${{ steps.plan.outputs.type }}
+      next: ${{ steps.plan.outputs.next }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Resolve Bump
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_BUMP:-}" ]; then
+            TYPE="$(printf '%s' "$INPUT_BUMP" | cut -d' ' -f1)"
+            ORIGEM="input do Run workflow"
+          else
+            LABELS="$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[].labels[].name' | grep '^bump:' | sort -u || true)"
+            TOTAL="$(printf '%s' "$LABELS" | grep -c . || true)"
+            if [ "$TOTAL" -gt 1 ]; then
+              echo "::error::mais de um label de bump no PR: $(printf '%s' "$LABELS" | tr '\n' ' ')"
+              exit 1
+            elif [ "$TOTAL" -eq 1 ]; then
+              TYPE="${LABELS#bump:}"
+              ORIGEM="label \`$LABELS\` do PR"
+            else
+              TYPE="patch"
+              ORIGEM="default (nenhum label \`bump:\` encontrado)"
+            fi
+          fi
+          case "$TYPE" in
+            patch|minor|major|skip) ;;
+            *) echo "::error::tipo de bump invalido: $TYPE"; exit 1 ;;
+          esac
+          ATUAL="$(node -p "require('./package.json').version")"
+          NEXT="$(node scripts/next-version.mjs "$TYPE")"
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Bump planejado (aguardando aprovação)"
+            echo
+            echo "| campo | valor |"
+            echo "| --- | --- |"
+            echo "| incremento | \`$TYPE\` |"
+            echo "| origem | $ORIGEM |"
+            echo "| versão atual | \`$ATUAL\` |"
+            echo "| versão após aprovação | \`$NEXT\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+  version_bump:
+    name: Version Bump
+    if: ${{ success() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' }}
+    needs: [ci, bump_plan]
+    runs-on: ubuntu-latest
+    environment:
+      name: release
     outputs:
       version: ${{ steps.bump.outputs.version }}
       sha: ${{ steps.bump.outputs.sha }}
@@ -98,7 +160,7 @@ jobs:
       - name: Bump Version
         id: bump
         env:
-          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_BUMP: ${{ needs.bump_plan.outputs.type }}
         run: |
           set -euo pipefail
           TYPE="$(printf '%s' "${INPUT_BUMP:-patch}" | cut -d' ' -f1)"
