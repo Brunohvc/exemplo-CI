@@ -33,7 +33,7 @@ yarn install && yarn lint && yarn test && yarn build && yarn start
 | `ci_docker` | tudo que **não** é `main` | `docker build` da imagem |
 | `cd_hml` | push em `homolog` | log do deploy em `hml` (env `hml`) |
 | `bump_plan` | push/dispatch em `main` | escreve no resumo a versão atual e qual versão cada incremento gera |
-| `bump_patch` / `bump_minor` / `bump_major` | push/dispatch em `main` | jobs de aprovação, um por environment (`bump-patch`, `bump-minor`, `bump-major`) |
+| `bump_patch` / `bump_minor` / `bump_major` | push/dispatch em `main` | jobs de aprovação, um por environment (`bump-patch (0.0.x)`, `bump-minor (0.x.0)`, `bump-major (x.0.0)`) |
 | `version_bump` | após a aprovação | `npm version <aprovado>`, commit `chore(release): vX.Y.Z [skip ci]`, tag e push |
 | `ci_docker_release` | após o bump | `docker build` no commit já versionado |
 | `cd_prd` | após o bump | log do deploy em `prd` (env `prd`) |
@@ -42,8 +42,9 @@ O commit de release leva `[skip ci]` para não disparar o workflow em loop.
 
 ### Escolha do incremento no diálogo de aprovação
 
-Todo push na `main` abre **três pendências de deployment** — `bump-patch`, `bump-minor` e `bump-major`,
-cada uma com *required reviewer*. Em **Review deployments** você:
+Todo push na `main` abre **três pendências de deployment** — `bump-patch (0.0.x)`, `bump-minor (0.x.0)`
+e `bump-major (x.0.0)`, cada uma com *required reviewer*. O padrão no nome mostra, já na hora de marcar o
+checkbox, qual casa da versão sobe. Em **Review deployments** você:
 
 1. marca o environment do incremento desejado → **Approve and deploy**;
 2. marca os outros dois → **Reject** (libera o `version_bump`, que roda com o incremento aprovado).
@@ -51,7 +52,7 @@ cada uma com *required reviewer*. Em **Review deployments** você:
 Os jobs de aprovação têm `continue-on-error: true`, então os rejeitados não derrubam o run. Se você
 rejeitar os três, nada é versionado e nenhum deploy acontece. **Aprovar mais de um incremento faz o
 `version_bump` falhar** — o diálogo do GitHub permite marcar vários, então a validação é no job. O resumo
-do `bump_plan` mostra, antes da aprovação, qual versão cada environment produz — ex.: `bump-minor` → `1.1.0`.
+do `bump_plan` mostra, antes da aprovação, qual versão cada environment produz — ex.: `bump-minor (0.x.0)` → `1.1.0`.
 
 O `version_bump` identifica o incremento pelo **output** do job de aprovação, não pelo `result`: com
 `continue-on-error: true` o `needs.<job>.result` vem `success` mesmo quando a aprovação foi rejeitada.
@@ -91,7 +92,7 @@ A versão **não muda** em homolog — é a mesma do `package.json`.
 ### 3. Produção escolhendo o incremento na aprovação
 
 Qualquer push/merge na `main`. O run para com as três pendências; abra **Review deployments**, aprove
-`bump-minor` (por exemplo) e rejeite `bump-patch` e `bump-major`.
+`bump-minor (0.x.0)` (por exemplo) e rejeite as outras duas.
 
 Esperado: `ci` → `bump_plan` → **waiting for review** → `version_bump` (`1.0.2` → `1.1.0`) →
 `ci_docker_release` → `cd_prd` logando `🚀 deploy concluido: exemplo-ci v1.1.0 -> prd`. No repo aparece a
@@ -104,11 +105,14 @@ correspondente pede aprovação. Com `skip` não há aprovação nem versão nov
 
 > Depois do bump o `package.json` remoto muda — rode `git pull` antes do próximo push na `main`.
 
-### 4. Produção via push direto na main (bump implícito = patch)
+### 4. Produção via push direto na main
 
 ```bash
 git checkout main && git commit --allow-empty -m "fix: valida esteira de prd" && git push
 ```
+
+Mesmo comportamento do item 3: sem input de dispatch, as três opções de incremento são abertas para
+aprovação.
 
 ## Diferenças em relação aos repos `-metas`
 
