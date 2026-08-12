@@ -27,7 +27,6 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: read
 
 jobs:
   ci:
@@ -84,8 +83,7 @@ jobs:
     needs: [ci]
     runs-on: ubuntu-latest
     outputs:
-      type: ${{ steps.plan.outputs.type }}
-      next: ${{ steps.plan.outputs.next }}
+      input_type: ${{ steps.plan.outputs.input_type }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -93,57 +91,78 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-      - name: Resolve Bump
+      - name: Plan Bump
         id: plan
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_BUMP: ${{ inputs.bump }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          INPUT_TYPE=""
           if [ -n "${INPUT_BUMP:-}" ]; then
-            TYPE="$(printf '%s' "$INPUT_BUMP" | cut -d' ' -f1)"
-            ORIGEM="input do Run workflow"
-          else
-            LABELS="$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[].labels[].name' | grep '^bump:' | sort -u || true)"
-            TOTAL="$(printf '%s' "$LABELS" | grep -c . || true)"
-            if [ "$TOTAL" -gt 1 ]; then
-              echo "::error::mais de um label de bump no PR: $(printf '%s' "$LABELS" | tr '\n' ' ')"
-              exit 1
-            elif [ "$TOTAL" -eq 1 ]; then
-              TYPE="${LABELS#bump:}"
-              ORIGEM="label \`$LABELS\` do PR"
-            else
-              TYPE="patch"
-              ORIGEM="default (nenhum label \`bump:\` encontrado)"
-            fi
+            INPUT_TYPE="$(printf '%s' "$INPUT_BUMP" | cut -d' ' -f1)"
+            case "$INPUT_TYPE" in
+              patch|minor|major|skip) ;;
+              *) echo "::error::tipo de bump invalido: $INPUT_TYPE"; exit 1 ;;
+            esac
           fi
-          case "$TYPE" in
-            patch|minor|major|skip) ;;
-            *) echo "::error::tipo de bump invalido: $TYPE"; exit 1 ;;
-          esac
           ATUAL="$(node -p "require('./package.json').version")"
-          NEXT="$(node scripts/next-version.mjs "$TYPE")"
-          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
-          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "input_type=$INPUT_TYPE" >> "$GITHUB_OUTPUT"
           {
-            echo "## Bump planejado (aguardando aprovação)"
+            echo "## Escolha do incremento"
             echo
-            echo "| campo | valor |"
-            echo "| --- | --- |"
-            echo "| incremento | \`$TYPE\` |"
-            echo "| origem | $ORIGEM |"
-            echo "| versão atual | \`$ATUAL\` |"
-            echo "| versão após aprovação | \`$NEXT\` |"
+            echo "Versão atual: \`$ATUAL\`"
+            echo
+            echo "| aprove este environment | incremento | versão resultante |"
+            echo "| --- | --- | --- |"
+            for T in patch minor major; do
+              echo "| \`bump-$T\` | $T | \`$(node scripts/next-version.mjs "$T")\` |"
+            done
+            echo
+            if [ -n "$INPUT_TYPE" ]; then
+              echo "Run workflow pediu \`$INPUT_TYPE\` — só esse environment será aberto para aprovação."
+            else
+              echo "Abra **Review deployments**, marque o environment do incremento desejado e clique"
+              echo "**Approve and deploy**. Depois marque os outros dois e clique **Reject** para liberar o release."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
-  version_bump:
-    name: Version Bump
-    if: ${{ success() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' }}
+  bump_patch:
+    name: Bump - patch
+    if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'patch') }}
     needs: [ci, bump_plan]
     runs-on: ubuntu-latest
+    continue-on-error: true
     environment:
-      name: release
+      name: bump-patch
+    steps:
+      - name: Approved
+        run: echo "incremento patch aprovado" >> "$GITHUB_STEP_SUMMARY"
+  bump_minor:
+    name: Bump - minor
+    if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'minor') }}
+    needs: [ci, bump_plan]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: bump-minor
+    steps:
+      - name: Approved
+        run: echo "incremento minor aprovado" >> "$GITHUB_STEP_SUMMARY"
+  bump_major:
+    name: Bump - major
+    if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'major') }}
+    needs: [ci, bump_plan]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: bump-major
+    steps:
+      - name: Approved
+        run: echo "incremento major aprovado" >> "$GITHUB_STEP_SUMMARY"
+  version_bump:
+    name: Version Bump
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' && needs.ci.result == 'success' && needs.bump_plan.result == 'success' && (needs.bump_plan.outputs.input_type == 'skip' || needs.bump_patch.result == 'success' || needs.bump_minor.result == 'success' || needs.bump_major.result == 'success') }}
+    needs: [ci, bump_plan, bump_patch, bump_minor, bump_major]
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
       sha: ${{ steps.bump.outputs.sha }}
@@ -160,10 +179,24 @@ jobs:
       - name: Bump Version
         id: bump
         env:
-          INPUT_BUMP: ${{ needs.bump_plan.outputs.type }}
+          INPUT_TYPE: ${{ needs.bump_plan.outputs.input_type }}
+          R_PATCH: ${{ needs.bump_patch.result }}
+          R_MINOR: ${{ needs.bump_minor.result }}
+          R_MAJOR: ${{ needs.bump_major.result }}
         run: |
           set -euo pipefail
-          TYPE="$(printf '%s' "${INPUT_BUMP:-patch}" | cut -d' ' -f1)"
+          if [ "$INPUT_TYPE" = "skip" ]; then
+            TYPE="skip"
+          elif [ "$R_MAJOR" = "success" ]; then
+            TYPE="major"
+          elif [ "$R_MINOR" = "success" ]; then
+            TYPE="minor"
+          elif [ "$R_PATCH" = "success" ]; then
+            TYPE="patch"
+          else
+            echo "::error::nenhum incremento foi aprovado"
+            exit 1
+          fi
           echo "Bump: $TYPE" >> "$GITHUB_STEP_SUMMARY"
           if [ "$TYPE" = "skip" ]; then
             echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"

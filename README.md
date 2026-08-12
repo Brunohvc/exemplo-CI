@@ -32,28 +32,32 @@ yarn install && yarn lint && yarn test && yarn build && yarn start
 | `ci` | push/PR em `main` e `homolog` | install, lint, test, build |
 | `ci_docker` | tudo que **não** é `main` | `docker build` da imagem |
 | `cd_hml` | push em `homolog` | log do deploy em `hml` (env `hml`) |
-| `bump_plan` | push/dispatch em `main` | resolve o incremento e escreve no resumo o `1.0.1 → 1.1.0` que será aplicado |
-| `version_bump` | após aprovação (env `release`) | `npm version <tipo>`, commit `chore(release): vX.Y.Z [skip ci]`, tag e push |
+| `bump_plan` | push/dispatch em `main` | escreve no resumo a versão atual e qual versão cada incremento gera |
+| `bump_patch` / `bump_minor` / `bump_major` | push/dispatch em `main` | jobs de aprovação, um por environment (`bump-patch`, `bump-minor`, `bump-major`) |
+| `version_bump` | após a aprovação | `npm version <aprovado>`, commit `chore(release): vX.Y.Z [skip ci]`, tag e push |
 | `ci_docker_release` | após o bump | `docker build` no commit já versionado |
 | `cd_prd` | após o bump | log do deploy em `prd` (env `prd`) |
 
 O commit de release leva `[skip ci]` para não disparar o workflow em loop.
 
-### Gate de aprovação do bump
+### Escolha do incremento no diálogo de aprovação
 
-O job `version_bump` usa o environment **`release`**, que tem *required reviewers*. Todo push na `main`
-para em **"release waiting for review"** e só segue depois do **Approve and deploy** — igual ao gate de `prd`
-dos repos do GB. Antes de aprovar, o resumo do `bump_plan` mostra o incremento escolhido, a origem e a
-próxima versão.
+Todo push na `main` abre **três pendências de deployment** — `bump-patch`, `bump-minor` e `bump-major`,
+cada uma com *required reviewer*. Em **Review deployments** você:
 
-De onde vem o incremento, em ordem de precedência:
+1. marca o environment do incremento desejado → **Approve and deploy**;
+2. marca os outros dois → **Reject** (libera o `version_bump`, que roda com o incremento aprovado).
 
-1. **input do Run workflow** (`workflow_dispatch`) — `patch` / `minor` / `major` / `skip`;
-2. **label do PR mergeado** — `bump:patch`, `bump:minor`, `bump:major` ou `bump:skip` (mais de um label → o job falha);
-3. **default `patch`**, quando o commit não veio de PR e não houve dispatch.
+Os jobs de aprovação têm `continue-on-error: true`, então os rejeitados não derrubam o run. Se você
+rejeitar os três, nada é versionado e nenhum deploy acontece. Aprovando mais de um, vale o maior
+(`major` > `minor` > `patch`). O resumo do `bump_plan` mostra, antes da aprovação, qual versão cada
+environment produz — ex.: `bump-minor` → `1.1.0`.
 
-> O diálogo de aprovação do GitHub só oferece Approve/Reject — ele não escolhe o tipo do bump.
-> Por isso o tipo vem do label/input, e a aprovação é o "pode subir".
+Pelo **Run workflow** o comportamento é mais curto: o input já define o incremento, então **só aquele
+environment** é aberto para aprovação (e `skip` dispensa aprovação, porque não versiona).
+
+> O GitHub não permite input custom no diálogo de aprovação — ele só tem checkbox por environment,
+> Approve e Reject. Um environment por incremento é o que transforma esse checkbox na seleção do bump.
 > *Required reviewers* em repo **privado** exige GitHub Pro/Team/Enterprise; em repo público é gratuito
 > (motivo pelo qual este repo é público).
 
@@ -76,20 +80,19 @@ git checkout -b homolog && git push -u origin homolog
 Esperado: `ci` + `ci_docker` → `cd_hml` logando `🚀 deploy concluido: exemplo-ci v1.0.0 -> hml`.
 A versão **não muda** em homolog — é a mesma do `package.json`.
 
-### 3. Produção com bump escolhido (patch / minor / major / skip)
+### 3. Produção escolhendo o incremento na aprovação
 
-Actions → **Standard** → *Run workflow* → branch `main` → escolha o incremento → *Run*.
+Qualquer push/merge na `main`. O run para com as três pendências; abra **Review deployments**, aprove
+`bump-minor` (por exemplo) e rejeite `bump-patch` e `bump-major`.
 
-Esperado: `ci` → `bump_plan` → **pausa esperando aprovação** → `version_bump` (ex.: `1.0.1` → `1.1.0` no
-minor) → `ci_docker_release` → `cd_prd` logando `🚀 deploy concluido: exemplo-ci v1.1.0 -> prd`. No repo
-aparece a tag `v1.1.0` e o commit `chore(release)`.
+Esperado: `ci` → `bump_plan` → **waiting for review** → `version_bump` (`1.0.2` → `1.1.0`) →
+`ci_docker_release` → `cd_prd` logando `🚀 deploy concluido: exemplo-ci v1.1.0 -> prd`. No repo aparece a
+tag `v1.1.0` e o commit `chore(release)`.
 
-Com `skip`, nenhuma versão nova é criada e o deploy loga a versão atual.
+### 3b. Produção pelo Run workflow
 
-### 3b. Produção pelo label do PR
-
-Coloque `bump:minor` (ou `patch`/`major`/`skip`) no PR para `main` e mergeie. O `bump_plan` lê o label,
-mostra `atual → próxima` no resumo, e o release fica parado até você aprovar.
+Actions → **Standard** → *Run workflow* → branch `main` → escolha o incremento → *Run*. Só o environment
+correspondente pede aprovação. Com `skip` não há aprovação nem versão nova — o deploy loga a versão atual.
 
 > Depois do bump o `package.json` remoto muda — rode `git pull` antes do próximo push na `main`.
 
