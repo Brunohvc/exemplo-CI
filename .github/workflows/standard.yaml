@@ -1,0 +1,155 @@
+on:
+  push:
+    branches:
+      - main
+      - homolog
+  pull_request:
+    branches:
+      - main
+      - homolog
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Incremento de versão aplicado antes do deploy de produção"
+        type: choice
+        default: "patch (0.0.x)"
+        options:
+          - "patch (0.0.x)"
+          - "minor (0.x.0)"
+          - "major (x.0.0)"
+          - "skip (mantém a versão atual)"
+
+name: Standard
+
+concurrency:
+  group: standard-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/homolog' }}
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    name: CI - Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+      - name: Lint App
+        run: yarn lint
+      - name: Test App
+        run: yarn test
+      - name: Build App
+        run: yarn build
+  ci_docker:
+    name: CI - Docker
+    if: ${{ github.ref != 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Docker Build
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          docker build -f dockerfiles/Dockerfile -t exemplo-ci:"$VERSION" .
+          echo "Imagem construída: exemplo-ci:$VERSION" >> "$GITHUB_STEP_SUMMARY"
+  cd_hml:
+    name: CD - hml
+    if: ${{ success() && github.ref == 'refs/heads/homolog' && github.actor != 'dependabot[bot]' }}
+    needs: [ci, ci_docker]
+    runs-on: ubuntu-latest
+    environment:
+      name: hml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Deploy App
+        run: node scripts/deploy.mjs hml
+  version_bump:
+    name: Version Bump
+    if: ${{ success() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' }}
+    needs: [ci]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Bump Version
+        id: bump
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          TYPE="$(printf '%s' "${INPUT_BUMP:-patch}" | cut -d' ' -f1)"
+          echo "Bump: $TYPE" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TYPE" = "skip" ]; then
+            echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          VERSION=$(npm version "$TYPE" --no-git-tag-version --ignore-scripts)
+          git add package.json
+          git commit -m "chore(release): $VERSION [skip ci]"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push origin "HEAD:${{ github.ref_name }}" --follow-tags
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Versão publicada: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+  ci_docker_release:
+    name: CI - Docker (release)
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+    needs: [version_bump]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version_bump.outputs.sha }}
+      - name: Docker Build
+        env:
+          VERSION: ${{ needs.version_bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker build -f dockerfiles/Dockerfile -t exemplo-ci:"${VERSION#v}" .
+          echo "Imagem de release construída: exemplo-ci:${VERSION#v}" >> "$GITHUB_STEP_SUMMARY"
+  cd_prd:
+    name: CD - prd
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+    needs: [version_bump, ci_docker_release]
+    runs-on: ubuntu-latest
+    environment:
+      name: prd
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version_bump.outputs.sha }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Deploy App
+        run: node scripts/deploy.mjs prd

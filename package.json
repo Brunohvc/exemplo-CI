@@ -1,0 +1,44 @@
+{
+  "name": "exemplo-ci",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Projeto minimo para testar o fluxo de CI/CD (homolog/prd + bump de versao) usado nos repos -metas",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "NODE_ENV=test jest --randomize --coverage --silent",
+    "start": "node dist/index.js",
+    "start:dev": "ts-node src/index.ts",
+    "deploy": "node scripts/deploy.mjs",
+    "commit": "git-cz",
+    "precommit": "npx lint-staged && yarn test",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": "24"
+  },
+  "packageManager": "yarn@1.22.22",
+  "author": "Bruno Henrique",
+  "license": "ISC",
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.7",
+    "@commitlint/cli": "^21.2.1",
+    "@commitlint/config-conventional": "^21.2.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "commitizen": "^4.3.2",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7",
+    "jest": "^30.4.2",
+    "lint-staged": "^16.2.7",
+    "ts-jest": "^29.4.12",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Brunohvc/exemplo-CI.git"
+  }
+}
