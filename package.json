@@ -1,7 +1,7 @@
 {
   "name": "exemplo-ci",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Projeto minimo para testar o fluxo de CI/CD (homolog/prd + bump de versao) usado nos repos -metas",
   "main": "./src/index.ts",
   "scripts": {
