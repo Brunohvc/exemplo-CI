@@ -49,9 +49,9 @@ cada uma com *required reviewer*. Em **Review deployments** você:
 2. marca os outros dois → **Reject** (libera o `version_bump`, que roda com o incremento aprovado).
 
 Os jobs de aprovação têm `continue-on-error: true`, então os rejeitados não derrubam o run. Se você
-rejeitar os três, nada é versionado e nenhum deploy acontece. Aprovando mais de um, vale o maior
-(`major` > `minor` > `patch`). O resumo do `bump_plan` mostra, antes da aprovação, qual versão cada
-environment produz — ex.: `bump-minor` → `1.1.0`.
+rejeitar os três, nada é versionado e nenhum deploy acontece. **Aprovar mais de um incremento faz o
+`version_bump` falhar** — o diálogo do GitHub permite marcar vários, então a validação é no job. O resumo
+do `bump_plan` mostra, antes da aprovação, qual versão cada environment produz — ex.: `bump-minor` → `1.1.0`.
 
 Pelo **Run workflow** o comportamento é mais curto: o input já define o incremento, então **só aquele
 environment** é aberto para aprovação (e `skip` dispensa aprovação, porque não versiona).
