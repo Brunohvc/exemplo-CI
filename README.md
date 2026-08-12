@@ -57,16 +57,9 @@ O `version_bump` identifica o incremento pelo **output** do job de aprovação, 
 `continue-on-error: true` o `needs.<job>.result` vem `success` mesmo quando a aprovação foi rejeitada.
 Job rejeitado não executa step nenhum, então o output fica vazio — esse é o sinal confiável.
 
-### Auto-reject (opcional, 1 clique)
-
-O `version_bump` só é agendado quando os três jobs de bump chegam a um estado final, ou seja: aprovar um
-não basta, os outros dois precisam ser rejeitados. Para não precisar do segundo envio no diálogo, o job
-aprovado rejeita as pendências restantes via API — mas isso exige um token de usuário, porque o
-`GITHUB_TOKEN` não tem permissão para aprovar/rejeitar deployment.
-
-Para ativar, crie um **fine-grained PAT** com permissão `Actions: read and write` neste repositório e
-cadastre em *Settings → Secrets and variables → Actions* como **`RELEASE_TOKEN`**. Sem o secret, o step
-é ignorado (`if: env.GH_TOKEN != ''`) e o fluxo segue manual: aprovar um, rejeitar os outros dois.
+O `version_bump` só é agendado quando os três jobs de bump chegam a um estado final — por isso aprovar um
+não basta, os outros dois precisam ser rejeitados no diálogo. São dois envios: *Approve and deploy* em um,
+*Reject* nos outros dois.
 
 Pelo **Run workflow** o comportamento é mais curto: o input já define o incremento, então **só aquele
 environment** é aberto para aprovação (e `skip` dispensa aprovação, porque não versiona).

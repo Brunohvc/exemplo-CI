@@ -142,23 +142,6 @@ jobs:
         run: |
           echo "approved=patch" >> "$GITHUB_OUTPUT"
           echo "incremento patch aprovado" >> "$GITHUB_STEP_SUMMARY"
-      - name: Reject Others
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          APROVADO: patch
-          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
-        if: ${{ env.GH_TOKEN != '' }}
-        run: |
-          set -euo pipefail
-          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
-          if [ "$IDS" = "[]" ]; then
-            echo "nenhuma pendencia restante"
-            exit 0
-          fi
-          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
-            "$IDS" "$APROVADO" \
-            | gh api -X POST "$URL" --input - >/dev/null \
-            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   bump_minor:
     name: Bump - minor
     if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'minor') }}
@@ -175,23 +158,6 @@ jobs:
         run: |
           echo "approved=minor" >> "$GITHUB_OUTPUT"
           echo "incremento minor aprovado" >> "$GITHUB_STEP_SUMMARY"
-      - name: Reject Others
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          APROVADO: minor
-          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
-        if: ${{ env.GH_TOKEN != '' }}
-        run: |
-          set -euo pipefail
-          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
-          if [ "$IDS" = "[]" ]; then
-            echo "nenhuma pendencia restante"
-            exit 0
-          fi
-          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
-            "$IDS" "$APROVADO" \
-            | gh api -X POST "$URL" --input - >/dev/null \
-            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   bump_major:
     name: Bump - major
     if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'major') }}
@@ -208,23 +174,6 @@ jobs:
         run: |
           echo "approved=major" >> "$GITHUB_OUTPUT"
           echo "incremento major aprovado" >> "$GITHUB_STEP_SUMMARY"
-      - name: Reject Others
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          APROVADO: major
-          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
-        if: ${{ env.GH_TOKEN != '' }}
-        run: |
-          set -euo pipefail
-          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
-          if [ "$IDS" = "[]" ]; then
-            echo "nenhuma pendencia restante"
-            exit 0
-          fi
-          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
-            "$IDS" "$APROVADO" \
-            | gh api -X POST "$URL" --input - >/dev/null \
-            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   version_bump:
     name: Version Bump
     if: ${{ always() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' && needs.ci.result == 'success' && needs.bump_plan.result == 'success' && (needs.bump_plan.outputs.input_type == 'skip' || needs.bump_patch.outputs.approved != '' || needs.bump_minor.outputs.approved != '' || needs.bump_major.outputs.approved != '') }}
