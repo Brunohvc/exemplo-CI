@@ -134,9 +134,31 @@ jobs:
     continue-on-error: true
     environment:
       name: bump-patch
+    outputs:
+      approved: ${{ steps.approve.outputs.approved }}
     steps:
       - name: Approved
-        run: echo "incremento patch aprovado" >> "$GITHUB_STEP_SUMMARY"
+        id: approve
+        run: |
+          echo "approved=patch" >> "$GITHUB_OUTPUT"
+          echo "incremento patch aprovado" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reject Others
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          APROVADO: patch
+          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
+        if: ${{ env.GH_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
+          if [ "$IDS" = "[]" ]; then
+            echo "nenhuma pendencia restante"
+            exit 0
+          fi
+          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
+            "$IDS" "$APROVADO" \
+            | gh api -X POST "$URL" --input - >/dev/null \
+            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   bump_minor:
     name: Bump - minor
     if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'minor') }}
@@ -145,9 +167,31 @@ jobs:
     continue-on-error: true
     environment:
       name: bump-minor
+    outputs:
+      approved: ${{ steps.approve.outputs.approved }}
     steps:
       - name: Approved
-        run: echo "incremento minor aprovado" >> "$GITHUB_STEP_SUMMARY"
+        id: approve
+        run: |
+          echo "approved=minor" >> "$GITHUB_OUTPUT"
+          echo "incremento minor aprovado" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reject Others
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          APROVADO: minor
+          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
+        if: ${{ env.GH_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
+          if [ "$IDS" = "[]" ]; then
+            echo "nenhuma pendencia restante"
+            exit 0
+          fi
+          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
+            "$IDS" "$APROVADO" \
+            | gh api -X POST "$URL" --input - >/dev/null \
+            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   bump_major:
     name: Bump - major
     if: ${{ success() && (needs.bump_plan.outputs.input_type == '' || needs.bump_plan.outputs.input_type == 'major') }}
@@ -156,12 +200,34 @@ jobs:
     continue-on-error: true
     environment:
       name: bump-major
+    outputs:
+      approved: ${{ steps.approve.outputs.approved }}
     steps:
       - name: Approved
-        run: echo "incremento major aprovado" >> "$GITHUB_STEP_SUMMARY"
+        id: approve
+        run: |
+          echo "approved=major" >> "$GITHUB_OUTPUT"
+          echo "incremento major aprovado" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reject Others
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          APROVADO: major
+          URL: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/pending_deployments
+        if: ${{ env.GH_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          IDS="$(gh api "$URL" --jq '[.[].environment.id]')"
+          if [ "$IDS" = "[]" ]; then
+            echo "nenhuma pendencia restante"
+            exit 0
+          fi
+          printf '{"environment_ids":%s,"state":"rejected","comment":"%s aprovado; demais incrementos rejeitados automaticamente"}' \
+            "$IDS" "$APROVADO" \
+            | gh api -X POST "$URL" --input - >/dev/null \
+            || echo "::warning::nao foi possivel rejeitar as pendencias restantes"
   version_bump:
     name: Version Bump
-    if: ${{ always() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' && needs.ci.result == 'success' && needs.bump_plan.result == 'success' && (needs.bump_plan.outputs.input_type == 'skip' || needs.bump_patch.result == 'success' || needs.bump_minor.result == 'success' || needs.bump_major.result == 'success') }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.actor != 'dependabot[bot]' && needs.ci.result == 'success' && needs.bump_plan.result == 'success' && (needs.bump_plan.outputs.input_type == 'skip' || needs.bump_patch.outputs.approved != '' || needs.bump_minor.outputs.approved != '' || needs.bump_major.outputs.approved != '') }}
     needs: [ci, bump_plan, bump_patch, bump_minor, bump_major]
     runs-on: ubuntu-latest
     outputs:
@@ -181,19 +247,16 @@ jobs:
         id: bump
         env:
           INPUT_TYPE: ${{ needs.bump_plan.outputs.input_type }}
-          R_PATCH: ${{ needs.bump_patch.result }}
-          R_MINOR: ${{ needs.bump_minor.result }}
-          R_MAJOR: ${{ needs.bump_major.result }}
+          A_PATCH: ${{ needs.bump_patch.outputs.approved }}
+          A_MINOR: ${{ needs.bump_minor.outputs.approved }}
+          A_MAJOR: ${{ needs.bump_major.outputs.approved }}
         run: |
           set -euo pipefail
           if [ "$INPUT_TYPE" = "skip" ]; then
             TYPE="skip"
           else
-            APROVADOS=""
-            if [ "$R_PATCH" = "success" ]; then APROVADOS="$APROVADOS patch"; fi
-            if [ "$R_MINOR" = "success" ]; then APROVADOS="$APROVADOS minor"; fi
-            if [ "$R_MAJOR" = "success" ]; then APROVADOS="$APROVADOS major"; fi
-            APROVADOS="${APROVADOS# }"
+            APROVADOS="$(printf '%s %s %s' "$A_PATCH" "$A_MINOR" "$A_MAJOR" | tr -s ' ')"
+            APROVADOS="$(printf '%s' "$APROVADOS" | sed 's/^ *//; s/ *$//')"
             TOTAL="$(printf '%s' "$APROVADOS" | wc -w | tr -d ' ')"
             if [ "$TOTAL" -eq 0 ]; then
               echo "::error::nenhum incremento foi aprovado"
