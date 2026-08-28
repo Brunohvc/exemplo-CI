@@ -1,4 +1,4 @@
-import { metaAtingida, percentualAtingimento } from './atingimento'
+import { faixaAtingimento, metaAtingida, percentualAtingimento } from './atingimento'
 import { getPackageInfo } from './version'
 
 const { name, version } = getPackageInfo()
@@ -8,3 +8,4 @@ console.log(`[${name}] v${version} iniciado`)
 console.log(
   `[${name}] atingimento: ${percentualAtingimento(meta)}% | meta atingida: ${metaAtingida(meta)}`,
 )
+console.log(`[${name}] faixa: ${faixaAtingimento(meta)}`)
