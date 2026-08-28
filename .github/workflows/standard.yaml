@@ -23,7 +23,7 @@ name: Standard
 
 concurrency:
   group: standard-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/homolog' }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
