@@ -1,4 +1,4 @@
-import { metaAtingida, percentualAtingimento } from './atingimento'
+import { faixaAtingimento, metaAtingida, percentualAtingimento } from './atingimento'
 
 describe('percentualAtingimento', () => {
   it('calcula o percentual de atingimento', () => {
@@ -23,5 +23,16 @@ describe('metaAtingida', () => {
     [{ realizado: 99, objetivo: 100 }, false],
   ])('avalia %o como %s', (meta, esperado) => {
     expect(metaAtingida(meta)).toBe(esperado)
+  })
+})
+
+describe('faixaAtingimento', () => {
+  it.each([
+    [{ realizado: 120, objetivo: 100 }, 'superado'],
+    [{ realizado: 100, objetivo: 100 }, 'no alvo'],
+    [{ realizado: 87, objetivo: 100 }, 'atencao'],
+    [{ realizado: 40, objetivo: 100 }, 'critico'],
+  ])('classifica %o como %s', (meta, esperado) => {
+    expect(faixaAtingimento(meta)).toBe(esperado)
   })
 })
